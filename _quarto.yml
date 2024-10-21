@@ -1,0 +1,18 @@
+project:
+  output-dir: _output
+
+manuscript: 
+  article: consejos-cpp.qmd
+
+subtitle: Sistemas Operativos {{< var academic-year >}}
+
+lang: es
+abstract-title: Resumen
+toc-title: Contenidos
+toc: true
+number-sections: true
+
+format:
+  pdf:
+    classoption: numbers=endperiod
+    papersize: a4
