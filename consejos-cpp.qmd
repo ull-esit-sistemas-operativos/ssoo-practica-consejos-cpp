@@ -896,9 +896,7 @@ Este valor se marca como `std::unexpected` para indicar que se ha producido un e
 Este valor se marca como `std::unexpected` para indicar que se ha producido un error.
 6. En caso de éxito, se devuelve la estructura `program_options` con las opciones encontradas y sus argumentos
 
-La función `parse_args()` devuelve un `std::expected`[^header_optional] para poder devolver la estructura de datos `program_options` en caso de éxito o un _enum_ `parse_args_errors` con el código de error en caso de fallo.
-
-[^header_optional]: `std::optional` está disponible desde gcc-12 (C++23) y se declara en `<expected>`.
+La función `parse_args()` devuelve un `std::expected` para poder devolver la estructura de datos `program_options` en caso de éxito o un _enum_ `parse_args_errors` con el código de error en caso de fallo.
 
 Este función se puede invocar fácilmente desde `main()`:
 
