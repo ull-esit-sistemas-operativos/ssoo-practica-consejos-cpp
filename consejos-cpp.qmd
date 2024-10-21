@@ -324,7 +324,7 @@ private:
 Con esta clase `SafeFD`, podemos definir nuestra función `open_file()` mediante `open()` así:
 
 ```{.cpp}
-SafeFD open_file(const std::string& path, int flags, mode_t mode)
+SafeFD open_file(const std::string& path, int flags, mode_t mode = 0)
 {
     int fd = open(path.c_str(), flags, mode);
     if (fd < 0)
@@ -368,7 +368,7 @@ int read_file(SafeFD fd, std::vector<uint8_t>& buffer)  // <1>
 Y la invocamos así:
 
 ```{.cpp}
-SafeFD testFd = open_file("test.txt", O_RDONLY, 0);
+SafeFD testFd = open_file("test.txt", O_RDONLY);
 read_file(fd, buffer);  // <1>
 ```
 1. Al salir de `read_file`, el descriptor de archivo en `testFd` estará cerrado y ya no será válido.
@@ -479,7 +479,7 @@ SafeFD testFd;  // <1>
 
 if (condition)
 {
-    testFd = open_file("test.txt", O_RDONLY, 0);    // <2>
+    testFd = open_file("test.txt", O_RDONLY);    // <2>
 }
 
 // ...
@@ -654,7 +654,7 @@ Sin embargo, ¿qué podemos hacer cuando queremos retornar algún valor en caso 
 Por ejemplo, la función `open_file()` que desarrollamos anteriormente se declara así:
 
 ```{.cpp}
-SafeFD open_file(const std::string& path, int flags, mode_t mode);
+SafeFD open_file(const std::string& path, int flags, mode_t mode = 0);
 ```
 
 Esta función devuelve un descriptor de archivo en caso de éxito pero necesitamos que también devuelva un código de error `std::error_code` en caso de fallo.
@@ -666,7 +666,7 @@ Esta clase se utiliza como se muestra en la siguiente función `open_file()`:
 
 ```{.cpp}
 std::expected<SafeFD, std::error_code> open_file(const std::string& path,  // <1>
-    int flags, mode_t mode)
+    int flags, mode_t mode = 0)
 {
     int fd = open(path.c_str(), flags, mode);
     if (fd == -1)
@@ -687,7 +687,7 @@ Al volver de `open_file()`, es muy sencillo comprobar si ha habido algún error,
 
 ```{.cpp}
 std::expected<SafeFD, std::error_code> result = open_file("test.txt",   // <1>
-    flags, mode);
+    flags, mode = 0);
 if (! result.has_value())                                               // <2>
 {
     // Manejar error en open_file()...                                  // <3>
@@ -714,14 +714,14 @@ Como los tipos de retorno de las funciones con `std::expected` pueden tener nomb
 using open_file_result = std::expected<SafeFD, std::error_code>;    // <1>
 
 open_file_result open_file(const std::string& path, int flags,      // <2>
-    mode_t mode);
+    mode_t mode = 0);
 {
     // ...
 }
 
 // ...
 
-open_file_result result = open_file("test.txt", flags, mode);       // <2>
+open_file_result result = open_file("test.txt", flags);         // <2>
 if (result)
 {
     SafeFD fd = std::move(result.value());                          // <3>
@@ -739,7 +739,8 @@ O, mejor, añadimos el atributo `nodiscard` para que no nos olvidemos de guardar
 using open_file_result = std::expected<SafeFD, std::error_code>;
 
 [[nodiscard]]
-open_file_result open_file(const std::string& path, int flags, mode_t mode);
+open_file_result open_file(const std::string& path, int flags,
+    mode_t mode = 0);
 ```
 
 ## Excepciones de C++
