@@ -377,7 +377,7 @@ El `SafeFD` se pasaría por valor a `read_file()`, pero eso haría que el descri
 Como ese descriptor de archivo es el mismo que el del objeto `testFd` --pues `fd`es una copia de `testFd`-- al volver de `read_file()` el descriptor de archivo en `testFd` ya no sería válido.
 
 Por eso, es mejor pasar `SafeFD` siempre por referencia.
-Para asegurar que nunca intentaremos copiarlo, se puede eliminar el constructor de copia y el operador de asignación de la clase `SafeFD` anterior:
+Para asegurar que nunca intentaremos copiarlo, se puede eliminar el [constructor de copia y el operador de asignación](https://learn.microsoft.com/es-es/cpp/cpp/copy-constructors-and-copy-assignment-operators-cpp) de la clase `SafeFD` anterior:
 
 ```{.cpp}
 class SafeFD
@@ -408,9 +408,9 @@ private:
 };
 ```
 1. Eliminar el constructor de copia. Ya no se podrá pasar un `SafeFD` por valor.
-2. Eliminar el operador de asignación. Ya no se podrá asignar un `SafeFD` a otro usando el operado `=`.
+2. Eliminar el operador de asignación. Ya no se podrá asignar un `SafeFD` a otro usando el operador '`=`'.
 
-Lo que sí puede hacerse es permitir que un objeto `SafeFD` se mueva a otro, para lo que se puede definir un constructor de movimiento y un operador de asignación de movimiento:
+Lo que sí puede hacerse es permitir que un objeto `SafeFD` se mueva a otro, para lo que se puede definir un [constructor de movimiento y un operador de asignación de movimiento](https://learn.microsoft.com/es-es/cpp/cpp/move-constructors-and-move-assignment-operators-cpp):
 
 ```{.cpp}
 class SafeFD
@@ -419,20 +419,21 @@ public:
     explicit SafeFD(int fd) noexcept
         : fd_{fd}
     {}
-    SafeFD() noexcept
+
+    explicit SafeFD() noexcept   // <1>
         : fd_{-1}
     {}
 
     SafeFD(const SafeFD&) = delete;
     SafeFD& operator=(const SafeFD&) = delete;
 
-    SafeFD(SafeFD&& other) noexcept  // <1>
+    SafeFD(SafeFD&& other) noexcept  // <2>
         : fd_{other.fd_}
     {
         other.fd_ = -1;
     }
 
-    SafeFD& operator=(SafeFD&& other) noexcept  // <2>
+    SafeFD& operator=(SafeFD&& other) noexcept  // <3>
     {
         if (this != &other && fd_ != other.fd_)
         {
@@ -454,7 +455,7 @@ public:
         }
     }
 
-    [[nodiscard]] bool is_valid() const noexcept    // <3>
+    [[nodiscard]] bool is_valid() const noexcept    // <4>
     {
         return fd_ >= 0;
     }
@@ -468,9 +469,14 @@ private:
     int fd_;
 };
 ```
-1. Constructor de movimiento.
-2. Operador de asignación de movimiento.
-3. Método para comprobar si el descriptor de archivo es válido (mayor que 0).
+1. Constructor por defecto que inicializa el descriptor de archivo a -1.
+Por tanto, cualquier objecto `SafeFD` creado de esta manera contiene un descriptor inválido.
+2. Constructor de movimiento.
+Construye un objeto `SafeFD` a partir de otro, moviendo el descriptor de archivo de ese a este.
+El otro objeto queda con un descriptor de archivo inválido.
+3. Operador de asignación de movimiento.
+Mueve el descriptor de archivo de otro objeto a este, cerrando el descriptor de archivo actual en este objeto y dejando un descriptor de archivo inválido en el otro objeto.
+4. Método para comprobar si el descriptor de archivo es válido (mayor que 0).
 
 Con estos cambios, es posible mover un objeto `SafeFD` a otro para, por ejemplo, permitir el siguiente caso:
 
@@ -486,7 +492,7 @@ if (condition)
 
 read_file(testFd, buffer);
 ```
-1. Objeto `SafeFD` con descriptor de archivo inválido (-1).
+1. Objeto `SafeFD` por defecto, con descriptor de archivo inválido (-1).
 2. Mover el descriptor de archivo devuelto por `open_file()` a `testFd`.
 
 # Manejo de errores
@@ -705,7 +711,8 @@ std::error_code error = read_file(fd, buffer);                          // <5>
 Después se propaga el código de error --el objeto `std::error_code` en `std::expected`-- al invocador de la función.
 Este objeto se puede obtener llamado al método `error()` del objeto `std::expected`.
 4. Si todo ha ido bien, se puede usar el método `value()` para acceder al descriptor de archivo `SafeFD` almacenado en el objeto `std::expected`.
-Al hacerlo es importante usar `std::move()` para mover el objeto `SafeFD` del objeto `std::expected` a la variable `fd`, puesto que hemos prohibido las copias de `SafeFD`.
+Al hacerlo **es importante usar `std::move()` para forzar que el objeto `SafeFD` dentro del objeto `std::expected` se mueva a la variable `fd`**, puesto que hemos prohibido las copias de `SafeFD`.
+Después de esta operación, el objeto `SafeFD` al que se tiene acceso mediante `result.value()` contendrá un descriptor de archivo inválido. 
 5. El descriptor de archivos se puede usar para leer o escribir en el archivo, entre otras operaciones.
 
 Como los tipos de retorno de las funciones con `std::expected` pueden tener nombres muy largos que dificultan la legibilidad, puede ser conveniente crear alias:
@@ -731,7 +738,8 @@ if (result)
 ```
 1. Definir un alias para el tipo retornado por `open_file()`.
 2. Usar el alias para definir la función `open_file()` y para crear un variable en la que guardar el objeto `std::expected` retornado.
-3. Es importante usar `std::move()` para mover el descriptor de archivo de `result` a `fd`.
+3. Es importante usar `std::move()` para forzar que se mueva el descriptor de archivo dentro de `result` a `fd`.
+Después de esta operación, el objeto `SafeFD` al que se tiene acceso mediante `result.value()` contendrá un descriptor de archivoea inválido.
 
 O, mejor, añadimos el atributo `nodiscard` para que no nos olvidemos de guardar el resultado de la función:
 
