@@ -16,3 +16,5 @@ format:
   pdf:
     classoption: numbers=endperiod
     papersize: a4
+    latex-tlmgr-opts:
+      - "--repository=https://eu.mirrors.cicku.me/ctan/systems/texlive/tlnet/"

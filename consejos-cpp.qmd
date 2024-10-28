@@ -265,22 +265,43 @@ buffer.resize(bytes_read);  // <1>
 Como en el caso de `getenv()`, podemos envolver la función `read()` con una versión que trabaje con `std::vector`, para así aprovechar más fácilmente las comodidades de los vectores de C++ en el resto de nuestro código:
 
 ```{.cpp}
-int read_file(int fd, std::vector<uint8_t>& buffer)
+ssize_t read_file(int fd, std::vector<uint8_t>& buffer, size_t max_size)
 {
-    ssize_t bytes_read = read(fd, buffer.data(), buffer.size());
+    if (buffer.size() < max_size)  // <1>
+    {
+        buffer.resize(max_size);
+    }
+
+    ssize_t bytes_read = read(fd, buffer.data(), max_size);
     if (bytes_read < 0)
     {
         // Manejar error en read()...
+        return bytes_read;
     }
-    buffer.resize(bytes_read);
+    buffer.resize(bytes_read);  // <2>
     return 0;
 }
 ```
+1. Si el tamaño del vector es menor que el número de bytes que se quieren leer `max_size`, se redimensiona el vector para que tenga el tamaño necesario.
+2. Reducir el tamaño del vector a la cantidad de bytes que `read()` ha leído en realidad, para que solo contenga los bytes válidos.
 
 :::{.callout-note}
-Observa que la función `read_file()` recibe un `std::vector<uint8_t>` para almacenar los bytes leídos del archivo, pero podemos pasarle un `std::vector` de cualquier otro tipo de dato o simplemente una estructura que queramos leer del archivo.
-Lo importante es que la función `read()` necesita la dirección de la memoria donde almacenar los datos leídos y el tamaño del buffer.
+Observa que la función `read_file()` recibe un `std::vector<uint8_t>` para almacenar los bytes leídos del archivo, pero podemos pasarle un `std::vector` de cualquier otro tipo de dato, un `std::string` o simplemente una estructura que queramos leer del archivo.
+Lo importante es que la función `read()` necesita la dirección de la memoria donde almacenar los datos leídos y el número máximo de bytes que puede escribir en el.
 :::
+
+Esta función `read_file()` se utiliza de la siguiente manera:
+
+```{.cpp}
+std::vector<uint8_t> buffer;
+ssize_t bytes_read = read_file(fd, buffer, 16ul * 1024 * 1024);
+if (bytes_read < 0)
+{
+    // Manejar error en read_file()...
+}
+```
+
+En la @sec-manejo-de-errores veremos cómo mejorar esta función para manerar adecuadamente los errores de `read()`.
 
 # Descriptores de archivo y otros recursos del sistema {#sec-descriptores-de-archivo}
 
@@ -338,12 +359,19 @@ SafeFD open_file(const std::string& path, int flags, mode_t mode = 0)
 Y la función `read_file()` que hemos visto antes, la podemos modificar para que reciba un `SafeFD` en lugar de un `int`:
 
 ```{.cpp}
-int read_file(const SafeFD& fd, std::vector<uint8_t>& buffer)
+ssize_t read_file(const SafeFD& fd, std::vector<uint8_t>& buffer,
+    size_t max_size)
 {
-    ssize_t bytes_read = read(fd.get(), buffer.data(), buffer.size());
+    if (buffer.size() < max_size)
+    {
+        buffer.resize(max_size);
+    }
+
+    ssize_t bytes_read = read(fd.get(), buffer.data(), max_size);
     if (bytes_read < 0)
     {
         // Manejar error en read()...
+        return bytes_read;
     }
     buffer.resize(bytes_read);
     return 0;
@@ -358,20 +386,21 @@ La clase `SafeFD` que hemos definido es muy básica y no es muy segura.
 Por ejemplo, si hubiéramos definido `read_file()` así:
 
 ```{.cpp}
-int read_file(SafeFD fd, std::vector<uint8_t>& buffer)  // <1>
+ssize_t read_file(SafeFD fd, // <1>
+    std::vector<uint8_t>& buffer, size_t max_size)
 {
     // ...
 }
 ```
-1. Se pasa el objeto `SafeFD` por valor, creando una copia del objeto original indicado como argumento.
+1. En este caso se pasa el objeto `SafeFD` por valor, creando una copia del objeto original indicado como argumento.
 
 Y la invocamos así:
 
 ```{.cpp}
 SafeFD testFd = open_file("test.txt", O_RDONLY);
-read_file(fd, buffer);  // <1>
+ssize_t bytes_read = read_file(fd, buffer, 4096);  // <1>
 ```
-1. Al salir de `read_file`, el descriptor de archivo en `testFd` estará cerrado y ya no será válido.
+1. Al salir de `read_file()`, el descriptor de archivo en `testFd` estará cerrado y ya no será válido.
 
 El `SafeFD` se pasaría por valor a `read_file()`, pero eso haría que el descriptor de archivo que contiene se cierre antes de salir de `read_file()` y destruir el objeto `fd`.
 Como ese descriptor de archivo es el mismo que el del objeto `testFd` --pues `fd`es una copia de `testFd`-- al volver de `read_file()` el descriptor de archivo en `testFd` ya no sería válido.
@@ -481,21 +510,25 @@ Mueve el descriptor de archivo de otro objeto a este, cerrando el descriptor de 
 Con estos cambios, es posible mover un objeto `SafeFD` a otro para, por ejemplo, permitir el siguiente caso:
 
 ```{.cpp}
-SafeFD testFd;  // <1>
+SafeFD fd;  // <1>
 
 if (condition)
 {
-    testFd = open_file("test.txt", O_RDONLY);    // <2>
+    fd = open_file("test.txt", O_RDONLY);    // <2>
 }
 
 // ...
 
-read_file(testFd, buffer);
+ssize_t bytes_read = read_file(fd, buffer, 4096);
+if (bytes_read < 0)
+{
+    // Manejar error en read_file()...
+}
 ```
 1. Objeto `SafeFD` por defecto, con descriptor de archivo inválido (-1).
-2. Mover el descriptor de archivo devuelto por `open_file()` a `testFd`.
+2. Mover el descriptor de archivo devuelto por `open_file()` a `fd`.
 
-# Manejo de errores
+# Manejo de errores {#sec-manejo-de-errores}
 
 En los ejemplos que hemos visto con `getenv()` y `read()` siempre comprobamos el valor devuelto para detectar si se ha producido algún error.
 
@@ -505,17 +538,23 @@ La mayor parte de las funciones que sirven servicios y recursos del sistema pued
 
 En los sistemas POSIX, la mayor parte de las funciones de la librería del sistema devuelven un valor negativo en caso de error, y un valor no negativo en caso de éxito.
 En el caso de `read()`, el valor devuelto es el número de bytes leídos, o -1 en caso de error.
-Por ejemplo, observa la comprobación sobre el valor devuelto por `read()` en la línea 4 de nuestra función:
+Por ejemplo, observa la comprobación sobre el valor devuelto por `read()` en la línea 10 de nuestra función:
 
 ```{.cpp code-line-numbers=true}
-int read_file(const SafeFD& fd, std::vector<uint8_t>& buffer)
+ssize_t read_file(const SafeFD& fd, std::vector<uint8_t>& buffer,
+    size_t max_size)
 {
-    ssize_t bytes_read = read(fd.get(), buffer.data(), buffer.size());
+    if (buffer.size() < max_size)
+    {
+        buffer.resize(max_size);
+    }
+
+    ssize_t bytes_read = read(fd.get(), buffer.data(), max_size);
     if (bytes_read < 0) // <1>
     {
         std::println(std::cerr, "Error ({}) en read(): {}", errno,  // <2>
             std::strerror(errno));  
-        return errno;
+        return bytes_read;
     }
     buffer.resize(bytes_read);
     return 0;
@@ -524,109 +563,137 @@ int read_file(const SafeFD& fd, std::vector<uint8_t>& buffer)
 1. Comprobación de error de la operación `read()`.
 2. Mostrar un mensaje de error con el código de error de `errno` y su descripción con `std::strerror()`.
 
-El valor devuelto por `read()` y otras funciones en caso de error no indica el tipo de error que ha ocurrido.
-Para obtener un código de error que nos indique el tipo, debemos consultar la macro `errno` (véase la línea 6 del ejemplo anterior).
+El valor devuelto por `read()` y otras funciones en caso de error no indica el tipo de error.
+Para obtener un código que nos indique el tipo de error, debemos consultar la macro `errno` (véase la línea 12 del ejemplo anterior).
 Este código nos ayudará a nosotros o al usuario que ha invocado el programa a identificar el origen del problema.
-Especialmente con ayuda de la función `strerror()` --o `std::strerror()` de C++-- que nos permite obtener un mensaje de texto descriptivo para cada valor posible de `errno`.
+Especialmente con ayuda de la función `strerror()` --o `std::strerror()` de C++-- que permite obtener un mensaje de texto descriptivo para cada valor posible de `errno`.
 
 :::{.callout-note}
 Esta forma de gestionar los errores es muy común en API, librerías y programas en C.
-Por ejemplo, Windows API define una función `GetLastError()` para obtener el código de error de la última operación fallida.
-Las funciones de Windows API devuelven NULL o un valor negativo en caso de error al realizar una operación.
+Por ejemplo, las funciones de Windows API devuelven `NULL` o un valor negativo en caso de error al realizar una operación.
+El código que identifica el motivo del error de la última operación fallida se puede obtener llamando a la función `GetLastError()`, de forma similar a como hace `errno` en los sistemas POSIX.
 :::
 
-El valor de `errno` puede ser cambiado por cualquier función de la librería del sistema.
-Muchas de las funciones de la librería estándar del lenguaje o de otras librerías pueden hacer uso funciones de la librería del sistema sin que nosotros lo sepamos.
-Acciones tan sencillas como añadir un elemento a un vector o imprimir un mensaje por la salida estándar, pueden usar la librería del sistema.
-Por eso, **lo primero que hay que hacer tras detectar que una función de la librería del sistema ha fallado, es guardar el valor actual de `errno`** para preservar el código del error de cambios posteriores.
+## Propagación de códigos de error {#sec-propagacion-de-errores}
 
-### Propagación de códigos de error {#sec-propagacion-de-errores}
-
-En el ejemplo anterior, la función `read_file()` muestra un mensaje de error y devuelve el código de error de `errno` en caso de fallo.
+En el ejemplo anterior, la función `read_file()` muestra un mensaje de error y devuelve un indicador de si ha ocurrido algún error.
 Sin embargo, no deberíamos imprimir mensajes de error en la función `read_file()` porque no sabemos si la función que la invoca quiere hacerlo o no.
-Igualmente, podríamos hacer que `read_file()` terminase unilateralmente el programa en caso de error, pero eso, generalmente, **es una mala idea**. 
+Igualmente, podríamos hacer que `read_file()` terminase unilateralmente el programa en caso de error, pero eso, generalmente, **es una mala práctica**. 
 La función `read_file()` no sabe si en el contexto en el que está siendo llamada, el programa debe terminar o tiene que hacer otra cosa en caso de error.
-
-Por ejemplo, si se usase `read_file()` para implementar una función `copy_file()` que copia un archivo a una ruta de destino, lo recomendable es que `read_file()` devuelva el error para que `copy_file()` pueda comprobar el valor devuelto, manejar adecuadamente la situación y, probablemente, propagar a su vez la condición de error a la función que la invocó a ella.
-Es decir, si `read_file()` falla, la operación `copy_file()` también fallará y esa condición, así como el motivo del error, debe ser comunicado a la función que invocó a `copy_file()` en primer lugar.
-
-En general, no es buena idea que una función haga terminar unilateralmente el programa en caso de detectar un error.
-Ni tampoco que imprima mensajes de error.
-Es más flexible que comunique la situación a quien la invocó, para que así sea más fácil rehusar el código en distintas partes de este o en otros proyectos.
 
 :::{.callout-important}
 En el caso de C++, **todo programa debería terminar con un `return` en `main()`** --con un 0 o un valor distinto de 0, en función de si el programa terminó con éxito o no, respectivamente-- lo que nos obliga a propagar los errores hasta la función principal del programa.
 :::
 
-La necesidad de gestionar y propagar códigos de error de distintas API y librerías es tan común, que C++ ofrece `std::error_code`[^header_error_code] para facilitar el trabajo.
+Por ejemplo, si se usase `read_file()` para implementar una función `copy_file()` que copia un archivo a una ruta de destino, lo recomendable es que `read_file()` devuelva el código del error, para que `copy_file()` pueda comprobar el valor devuelto, manejar adecuadamente la situación y, probablemente, propagar a su vez la condición de error a la función que la invocó a ella.
+Es decir, si `read_file()` falla, la operación `copy_file()` también fallará y esa condición, así como el motivo del error, debe ser comunicado a la función que invocó a `copy_file()` en primer lugar.
 
-[^header_error_code]: `std::error_code` se declara en `<system_error>`.
-
-Por ejemplo, en la siguiente versión de nuestra función `read_file()`, se devuelve un objeto `std::error_code` de la categoría `std::system_category()`, con 0 en caso de éxito o el código de error de `errno` en caso de error:
+Al ser `errno` similar a una variable global, podríamos tener la tentación de hacer esto leyendo el valor de `errno` después de llamar a `read_file()`, para conocer así la causa del error y, si es necesario, imprimir un mensaje de error:
 
 ```{.cpp}
-std::error_code read_file(const SafeFD& fd, std::vector<uint8_t>& buffer)
+ssize_t read_file(const SafeFD& fd, std::vector<uint8_t>& buffer,
+    size_t max_size)
 {
-    ssize_t bytes_read = read(fd.get, buffer.data(), buffer.size());
+    if (buffer.size() < max_size)
+    {
+        buffer.resize(max_size);
+    }
+
+    ssize_t bytes_read = read(fd.get(), buffer.data(), max_size);
     if (bytes_read < 0)
     {
-        return std::error_code(errno, std::system_category());  // <1>
+        return bytes_read;  // <1>
     }
     buffer.resize(bytes_read);
-    return std::error_code(0, std::system_category());         // <2>
+    return 0;
+}
+
+// ...
+
+ssize_t bytes_read = read_file(fd, buffer, 4096);
+if (bytes_read < 0)
+{
+    std::println(std::cerr, "Error ({}) en read_file(): {}", errno,  // <2>
+        std::strerror(errno));
 }
 ```
-1. Retornar un objeto `std::error_code` con el código del error de `read()`.
-1. Retornar un objeto `std::error_code` con el valor 0, para indicar el éxito de la operación.
+1. Ya no imprimimos el mensaje de error en `read_file()`.
+En su lugar se devuelve el valor de retorno de `read()` para que la función que invocó a `read_file()` sepa si ocurrió un error.
+2. Se imprime el mensaje de error en la función que invocó a `read_file()` --o en la que invoque a esa, según lo que corresponda-- usando el valor de `errno`.
 
-Cada objeto `std::error_code` almacena un código de error y una categoría de errores.
-El concepto de categoría es importante porque permite usar el mismo valor de error en tipos de error diferente, si están en distintas categorías.
-Por ejemplo, una librería de comunicaciones en red puede usar los mismos valores de error que la librería del sistema, si define su propia categoría de errores.
+Sin embargo, esta tampoco es una buena práctica, porque el valor de `errno` puede ser cambiado por cualquier función de la librería del sistema.
+Y resulta que muchas de las funciones de la librería estándar del lenguaje o de otras librerías pueden hacer uso funciones de la librería del sistema sin que nosotros lo sepamos.
+Acciones tan sencillas como añadir un elemento a un vector o imprimir un mensaje por la salida estándar, pueden usar la librería del sistema.
+Por eso, **no podemos confiar en que el valor de `errno` al salir de `read_file()` sea el mismo que el establecido por `read()` al fallar**.
 
-El valor devuelto por `std::system_category()` corresponde a la categoría de _errores del sistema_, donde podemos englobar los errores notificados por la librería del sistema.
+Por tanto, lo primero que hay que hacer tras detectar que una función de la librería del sistema ha fallado, es guardar el valor actual de `errno` para preservar el código de error de cambios posteriores.
 
-Al invocar a `read_file()` es muy sencillo comprobar si ha habido algún error, ya que el objeto `std::error_code` tiene un operador de conversión a `bool` que devuelve `true` si el código de error es 0 y `false` en caso contrario:
+Por ejemplo, en la siguiente versión de la función `read_file()` se retorna el valor de `errno` en caso de error o `ESUCCESS` --cuyo valor es 0-- en caso de éxito, de tal forma que la función que la invoca pueda comprobar si ha habido algún error y, en caso afirmativo, conocer el motivo y gestionarlo adecuadamente.
 
 ```{.cpp}
-std::error_code copy_file(const std::string& src_path,
-    const std::string& dst_path)
+int read_file(const SafeFD& fd, std::vector<uint8_t>& buffer,
+    size_t max_size)
+{
+    if (buffer.size() < max_size)
+    {
+        buffer.resize(max_size);
+    }
+
+    ssize_t bytes_read = read(fd.get(), buffer.data(), max_size);
+    if (bytes_read < 0)
+    {
+        return errno;   // <1>
+    }
+    buffer.resize(bytes_read);
+    return ESUCCESS;
+```
+1. El valor de `errno` se devuelve inmediatamente en caso de error, por lo que no se pierde si otra función de la librería del sistema cambia su valor.
+
+Esta función `read_file()` se puede invocar de la siguiente manera:
+
+```{.cpp}
+std::vector<uint8_t> buffer(4096);
+int error = read_file(fd, buffer, buffer.size());
+if (error != ESUCCESS) // <1>
+{
+    std::println(std::cerr, "Error ({}) en read_file(): {}", error,  // <2>
+        std::strerror(error));
+}
+```
+1. La variable `error` contiene, al retornar de `read_file()`, el código de error establecido por `read()` en `errno`, en caso de fallo de la función, o `ESUCCESS`, en caso de éxito.
+2. Si `read_file()` falla, se muestra un mensaje de error con el código de error en `error` y una descripción de dicho error obtenida llamando a `std::strerror()`.
+
+Si la función `read_file()` no está siendo invocada desde `main()` directamente, sino desde otra función, seguramente esta última no debería imprimir mensajes de error, sino que debería devolver el código de error a la función que la invocó a su vez.
+
+Por ejemplo, si implementamos una función `copy_file()` que copie un archivo usando `read_file()`, está debe devolver el código de error a la función que la llamó a ella:
+
+```{.cpp}
+int copy_file(const std::string& src_path, const std::string& dst_path)
 {
     SafeFD src_fd = open_file(src_path, /* ... */);
 
     // ...
 
-    std::error_code error = read_file(src_fd, buffer);  // <1>
-    if (error)                                          // <2>
+    int error = read_file(src_fd, buffer);  // <1>
+    if (error != ESUCCESS)                  // <2>
     {
-        // Manejar error en read_file()...              // <3>
-        return error;                                   // <4>
+        // Manejar error en read_file()...  // <3>
+        return error;                       // <4>
     }
 
     // ...
 
-    return std::error_code(0, std::generic_category());  // <5>
+    return ESUCCESS;                        // <5>
 }
 ```
 1. Llamar a `read_file()` para leer del archivo.
-2. Comprobar si `read_file()` terminó con éxito comprobado el objeto `std::error_code` devuelto.
+2. Comprobar si `read_file()` terminó con éxito comprobado el código de error devuelto.
 3. En caso de error, es necesario manejarlo. 
 Por ejemplo, cerrando y liberando recursos reservados dentro de `copy_file()`, que ya no van a ser necesarios debido a que estamos a punto de salir de la función.
 En este ejemplo no hace falta porque `SafeFD` se encarga de cerrar el descriptor de archivo al destruirse.
-4. Propagar el error al invocador de `copy_file()` usando el valor de retorno.
-El invocador tendrá que hacer su propio manejo del error y continuar con la propagación de este por la pila de llamadas.
-5. Si todo ha ido bien, cerrar y librear recursos y terminar indicado que se ha tenido éxito.
-
-Además, el objeto `std::error_code` tiene un método `message()` que devuelve un mensaje de texto descriptivo del error --que obtiene llamando a `std::strerror`-- y un método `value()` que devuelve el código de error --es decir, el valor de `errno` cuando se creó el objeto--.
-
-```{.cpp}
-std::error_code error = read_file(fd, buffer);
-if (error)
-{
-    std::println(std::cerr, "Error ({}): {}", error.value(),    // <1>
-        error.message());
-}
-```
-1. Usar los métodos `value()` y `message` del objeto `std::error_code` para componer un mensaje de error.
+4. Propagar el error a la función que invocó a `copy_file()` usando el valor de retorno.
+Esta función tendrá que hacer su propio manejo del error y continuar con la propagación de este por la pila de llamadas.
+5. Si todo ha ido bien, liberar recursos y terminar indicado que se ha tenido éxito.
 
 ## Obligar a comprobar los errores
 
@@ -640,7 +707,8 @@ En C++ se puede indicar al compilador que muestre un _warning_ si el programador
 
 ```{.cpp}
 [[nodiscard]]
-std::error_code read_file(const SafeFD& fd, std::vector<uint8_t>& buffer)
+int read_file(const SafeFD& fd, std::vector<uint8_t>& buffer,
+    size_t max_size)
 {
     // ...
 }
@@ -654,7 +722,7 @@ Sin embargo, **recomendamos usarlo** para resolver la práctica, con el objeto d
 ## Propagación de errores con `std::expected`
 
 En nuestra función `read_file()` los datos leídos del archivo se devuelve mediante un argumento `buffer` pasado por referencia.
-Por tanto, no tenemos problema en usar el valor de retorno para devolver el código de error usando un `std::error_code`.
+Por tanto, no tenemos problema en usar el valor de retorno para devolver el código de error usando un `int`.
 Sin embargo, ¿qué podemos hacer cuando queremos retornar algún valor en caso de éxito y un código de error en caso de error?.
 
 Por ejemplo, la función `open_file()` que desarrollamos anteriormente se declara así:
@@ -663,7 +731,7 @@ Por ejemplo, la función `open_file()` que desarrollamos anteriormente se declar
 SafeFD open_file(const std::string& path, int flags, mode_t mode = 0);
 ```
 
-Esta función devuelve un descriptor de archivo en caso de éxito pero necesitamos que también devuelva un código de error `std::error_code` en caso de fallo.
+Esta función devuelve un descriptor de archivo en caso de éxito pero necesitamos que también devuelva un código de error en caso de fallo.
 
 Para poder devolver uno de los dos valores, según el caso, C++ ofrece `std::expected`[^header_expected].
 Esta clase se utiliza como se muestra en la siguiente función `open_file()`:
@@ -671,45 +739,49 @@ Esta clase se utiliza como se muestra en la siguiente función `open_file()`:
 [^header_expected]: `std::expected` está disponible desde gcc-12 (C++23) y se declara en `<expected>`. 
 
 ```{.cpp}
-std::expected<SafeFD, std::error_code> open_file(const std::string& path,  // <1>
+std::expected<SafeFD, int> open_file(const std::string& path,  // <1>
     int flags, mode_t mode = 0)
 {
     int fd = open(path.c_str(), flags, mode);
     if (fd == -1)
     {
-        std::error_code error(errno, std::system_category());
-        return std::unexpected(error);                                  // <2>
+        return std::unexpected(errno);                         // <2>
     }
 
-    return SafeFD{fd};                                                  // <3>
+    return SafeFD{fd};                                         // <3>
 }
 ```
-1. La función retorna `std::expected<SafeFD, std::error_code>`.
+1. La función retorna `std::expected<SafeFD, int>`.
 El primer parámetro de `std::expected` debe ser el tipo del objeto a retornar en caso de éxito, mientras que el segundo es el tipo del objeto para devolver el error.
-2. En caso de error, devolvemos un objeto `std::expected`, pero para que este señale un error, se crea con `std::unexpected()`, pasándole el objeto con el código de error.
+2. En caso de error, devolvemos un objeto `std::expected`, pero para que este señale un error, se crea con `std::unexpected()`, pasándole el valor de `errno`, que se guarda como un `int`.
 3. En caso de éxito, también se devuelve un objeto `std::expected` creado con el valor que queremos que retorne la función en caso de éxito, que en este caso es el descriptor de archivos `fd` dentro de un objeto `SafeFD`.
 
 Al volver de `open_file()`, es muy sencillo comprobar si ha habido algún error, ya que el objeto `std::expected` tiene un método `has_value()` que devuelve `true` si no contiene un error:
 
 ```{.cpp}
-std::expected<SafeFD, std::error_code> result = open_file("test.txt",   // <1>
+std::expected<SafeFD, int> result = open_file("test.txt",       // <1>
     flags, mode = 0);
-if (! result.has_value())                                               // <2>
+if (! result.has_value())                                       // <2>
 {
-    // Manejar error en open_file()...                                  // <3>
+    // Manejar error en open_file()...                          // <3>
     return result.error();
 }
 
-SafeFD fd = std::move(result.value());                                  // <4>
+SafeFD fd = std::move(result.value());                          // <4>
 
 std::vector<uint8_t> buffer(1024);
-std::error_code error = read_file(fd, buffer);                          // <5>
+int error = read_file(fd, buffer, buffer.size());               // <5>
+if (error != ESUCCESS)
+{
+    // Manejar error en read_file()...
+    return error;
+}
 ```
 1. Llamar a `open_file()` para abrir el archivo.
 2. Comprobar si `open_file()` terminó con éxito comprobado si objeto `std::expected` devuelto contiene un error.
 3. En caso de error, es necesario manejarlo, por ejemplo, cerrando y liberando recursos reservados.
-Después se propaga el código de error --el objeto `std::error_code` en `std::expected`-- al invocador de la función.
-Este objeto se puede obtener llamado al método `error()` del objeto `std::expected`.
+Después se propaga el código de error --el `int` en `std::expected`-- al invocador de la función.
+Este valor se puede obtener llamado al método `error()` del objeto `std::expected`.
 4. Si todo ha ido bien, se puede usar el método `value()` para acceder al descriptor de archivo `SafeFD` almacenado en el objeto `std::expected`.
 Al hacerlo **es importante usar `std::move()` para forzar que el objeto `SafeFD` dentro del objeto `std::expected` se mueva a la variable `fd`**, puesto que hemos prohibido las copias de `SafeFD`.
 Después de esta operación, el objeto `SafeFD` al que se tiene acceso mediante `result.value()` contendrá un descriptor de archivo inválido. 
@@ -718,7 +790,7 @@ Después de esta operación, el objeto `SafeFD` al que se tiene acceso mediante 
 Como los tipos de retorno de las funciones con `std::expected` pueden tener nombres muy largos que dificultan la legibilidad, puede ser conveniente crear alias:
 
 ```{.cpp}
-using open_file_result = std::expected<SafeFD, std::error_code>;    // <1>
+using open_file_result = std::expected<SafeFD, int>;                // <1>
 
 open_file_result open_file(const std::string& path, int flags,      // <2>
     mode_t mode = 0);
@@ -728,8 +800,8 @@ open_file_result open_file(const std::string& path, int flags,      // <2>
 
 // ...
 
-open_file_result result = open_file("test.txt", flags);         // <2>
-if (result)
+open_file_result result = open_file("test.txt", flags);             // <2>
+if (result.has_value())
 {
     SafeFD fd = std::move(result.value());                          // <3>
 
@@ -741,104 +813,18 @@ if (result)
 3. Es importante usar `std::move()` para forzar que se mueva el descriptor de archivo dentro de `result` a `fd`.
 Después de esta operación, el objeto `SafeFD` al que se tiene acceso mediante `result.value()` contendrá un descriptor de archivoea inválido.
 
-O, mejor, añadimos el atributo `nodiscard` para que no nos olvidemos de guardar el resultado de la función:
+O, mejor aun, añadimos el atributo `nodiscard` para que no nos olvidemos de guardar el resultado de la función:
 
 ```{.cpp}
-using open_file_result = std::expected<SafeFD, std::error_code>;
+using open_file_result = std::expected<SafeFD, int>;
 
 [[nodiscard]]
 open_file_result open_file(const std::string& path, int flags,
-    mode_t mode = 0);
-```
-
-## Excepciones de C++
-
-:::{.callout-important}
-Si no sabes cómo funcionan las excepciones en C++ o no quieres usarlas, puedes ignorar completamente este apartado y saltar directamente a la @sec-argumentos-linea-comandos.
-:::
-
-En C++ y otros lenguajes con orientación a objetos, la forma más común de propagar errores es mediante excepciones.
-Si estás familiarizado con este concepto y lo prefieres, **puedes utilizar excepciones para gestionar los errores en la práctica**.
-
-Para utilizar excepciones solo necesitas saber que podemos lanzar una excepción para un código de error de `errno` concreto:
-
-```{.cpp}
-throw std::system_error(errno, std::system_category(), "Error en foo()");
-```
-
-Si, por ejemplo, se lanza una excepción de tipo `std::system_error` desde la función `read_file()` cuando `read()` falla, la excepción se puede capturar para manejarla adecuadamente:
-
-```{.cpp}
-try
+    mode_t mode = 0)
 {
-    read_file(int fd, buffer);
-}
-catch (std::system_error& e)
-{
-    std::println(std::cerr, "Error ({}): {}", e.code().value(), e.what());
+    // ...
 }
 ```
-
-Las excepciones `std::system_error`[^header_system_error] guardan el código de error `errno` en el objeto.
-Llamando al método `code()` del objeto de la excepción --la variable `e` en el ejemplo anterior-- se obtiene el objeto `std::error_code` que contiene el código de error con el que se lanzó la excepción.
-Dicho código se puede obtener con el método `value()` del objeto `std::error_code` devuelto por `code()`.
-
-[^header_system_error]: `std::system_error` se declara en `<system_error>`.
-
-Además, el objeto de la excepción `e` guarda un mensaje de texto descriptivo del error que se puede obtener con el método `what()`.
-Este mensaje descriptivo es equivalente al que se obtiene con `std::strerror(errno)`, pero al que se le añade la cadena indicada en el tercer argumento del constructor de `std::system_error`.
-
-Este tercer argumento puede ser útil para construir un mensaje donde se indique la línea y el fichero donde se ha producido el error, lo que puede facilitar la localización del problema durante el desarrollo:
-
-```{.cpp}
-throw std::system_error(errno, std::system_category(),
-    std::format("Lanzado desde '{}' línea {}", __FILE__, __LINE__));    // <1>
-```
-1. Crear un mensaje de error más informativo para la excepción, con el nombre del fichero --usando el valor de la macro `__FILE__`-- y el número de línea --usando el valor de `__LINE__`-- donde se ha lanzado la excepción.
-
-### Patrón `protected_main()`
-
-Un patrón muy común para hacer el código más legible es separar el manejo de excepciones del resto del código de la función `main()`.
-Básicamente, consiste en extraer el código de la aplicación que puede lanzar excepciones y ponerlo en una función llamada `protected_main()`:
-
-```{.cpp}
-int protected_main(int argc, char* argv[])
-{
-    // Código de la aplicación...
-
-    read_file(int fd, buffer);
-
-    // Más código de la aplicación...
-
-	return EXIT_SUCCESS;
-}
-```
-
-Y luego crear una función `main()` con el bloque `try-catch` que llame a `protected_main()` dentro de `try` y gestione las excepciones en `catch`:
-
-```{.cpp}
-int main(int argc, char* argv[])
-{
-    try
-    {
-        return protected_main();
-    }
-    catch(std::system_error& e)
-    {
-        std::println(std::cerr,
-            "Error ({}): {}", e.code().value(), e.what());
-    }
-    catch(std::exception& e)
-    {
-        std::println(std::cerr,
-            "Error: Excepción: {}", e.what());
-    }
-
-    return EXIT_FAILURE;
-}
-```
-
-Esto permite programar libremente en `protected_main()` las tareas y funcionalidades de nuestra aplicación, sabiendo que cualquier excepción será interceptada y tratada adecuadamente en `main()`, antes de salir del programa.
 
 # Argumentos de la línea de comandos {#sec-argumentos-linea-comandos}
 
