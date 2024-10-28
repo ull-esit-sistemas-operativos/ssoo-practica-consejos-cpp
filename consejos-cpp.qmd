@@ -861,7 +861,7 @@ for (auto it = args.begin(), end = args.end(); it != end; ++it)
         show_help = true;
     }
 
-    if (arg == "-o" || arg == "--output")
+    else if (*it == "-o" || *it == "--output")
     {
         if (++it != end)
         {
@@ -871,6 +871,15 @@ for (auto it = args.begin(), end = args.end(); it != end; ++it)
         {
             // Error por falta de argumento...
         }
+    }
+
+    // Procesar otras opciones...
+
+    else if (!it->starts_with("-"))
+    {
+        // Añadir a un vector los argumentos adicionales
+        // que no son opciones. Por ejemplo, nombres de archivo.
+        additional_args.push_back(*it);
     }
 
     // ...
@@ -898,9 +907,10 @@ struct program_options  // <2>
     bool show_help = false;
     std::string output_filename;
     // ...
+    std::vector<std::string> additional_args;   // <3>
 };
 
-std::expected<program_options, parse_args_errors>   // <3>
+std::expected<program_options, parse_args_errors>   // <4>
 parse_args(int argc, char* argv[])
 {
     std::vector<std::string_view> args(argv + 1, argv + argc);
@@ -921,28 +931,35 @@ parse_args(int argc, char* argv[])
             else
             {
                 return std::unexpected(
-                    parse_args_errors::missing_argument);   // <4>
+                    parse_args_errors::missing_argument);   // <5>
             }
         }
-        // Opciones adicionales...
+
+        // Procesar otras opciones...
+        
+        else if(!it->starts_with("-"))
+        {
+            options.additional_args.push_back(*it);
+        }
         else 
         {
             return std::unexpected(
-                parse_args_errors::unknown_option); // <5>
+                parse_args_errors::unknown_option); // <6>
         }
     }
 
-    return options; // <6>
+    return options; // <7>
 }
 ```
 1. Enumeración con los posibles errores al procesar los argumentos de la línea de comandos.
 2. Estructura con las opciones admitidas por el programa.
-3. La función `parse_args()` devuelve un `std::expected` que puede contener una estructura `program_options` en caso de éxito o un `parse_args_errors` con el motivo del error en caso de fallo.
-4. En caso de que se indique la opción `-o` o `--output` pero no se indique el nombre del archivo de salida, se devuelve `parse_args_errors::missing_argument` para notificar el error a la función que ha invocado a `parse_args()`.
+3. Si el programa admite argumentos adicionales que no son opciones, se pueden guardar en un vector.
+4. La función `parse_args()` devuelve un `std::expected` que puede contener una estructura `program_options` en caso de éxito o un `parse_args_errors` con el motivo del error en caso de fallo.
+5. En caso de que se indique la opción `-o` o `--output` pero no se indique el nombre del archivo de salida, se devuelve `parse_args_errors::missing_argument` para notificar el error a la función que ha invocado a `parse_args()`.
 Este valor se marca como `std::unexpected` para indicar que se ha producido un error.
-5. Si se encuentra una opción desconocida, se devuelve el código de error \newline `parse_args_errors::unknown_option`.
+6. Si se encuentra una opción desconocida, se devuelve el código de error \newline `parse_args_errors::unknown_option`.
 Este valor se marca como `std::unexpected` para indicar que se ha producido un error.
-6. En caso de éxito, se devuelve la estructura `program_options` con las opciones encontradas y sus argumentos
+7. En caso de éxito, se devuelve la estructura `program_options` con las opciones encontradas y sus argumentos
 
 La función `parse_args()` devuelve un `std::expected` para poder devolver la estructura de datos `program_options` en caso de éxito o un _enum_ `parse_args_errors` con el código de error en caso de fallo.
 
