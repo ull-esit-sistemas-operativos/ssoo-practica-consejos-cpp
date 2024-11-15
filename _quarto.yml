@@ -1,8 +1,8 @@
 project:
   output-dir: _output
-
-manuscript: 
-  article: consejos-cpp.qmd
+  render:
+    - consejos-cpp.qmd
+    - excepciones-cpp.qmd
 
 subtitle: Sistemas Operativos {{< var academic-year >}}
 
