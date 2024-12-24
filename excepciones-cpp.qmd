@@ -9,23 +9,53 @@ abstract: |
     Vamos a ver como manejar los errores de las librerías del sistema usando excepciones en C++.
 ---
 
+# Cuándo usar excepcioones
+
+En C++ y otros lenguajes con orientación a objetos, una forma común de gestionar errores es mediante excepciones.
+Si embargo, en C++, actualmente, se suele preferir que las excepciones se utilicen solo para gestionar situaciones realmente excepcionales, es decir, para errores realmente serios, poco frecuentes o inesperados.
+
+Por ejemplo, no poder abrir un fichero porque no existe o no poder conectar con un servidor remoto mediante _sockets_, no son situaciones excepcionales, sino errores comunes, que se pueden prever y gestionar de forma más sencilla.
+Por tanto, la recomendación es que estos errores se gestionen retornando clases de error con la ayuda de `std::expected`.
+
+Sin embargo, no poder leer un fichero porque se ha producido un error de lectura o no poder escribir porque no hay suficiente espacio de almacenamiento disponible, si son situaciones excepcionales, que no suelen ocurrir en los sistemas modernos.
+Por tanto, en estos casos, se puede utilizar excepciones para gestionar los errores.
+
+En todo caso, la decisión de usar excepciones o no, es una cuestión de estilo y preferencia del equipo de desarrollo.
+Por nuestra parte, si estás familiarizado con las excepciones y lo prefieres, **puedes utilizarlas para gestionar los errores en la práctica**.
+
 # Manejo de errores con excepciones
 
-En C++ y otros lenguajes con orientación a objetos, la forma más común de propagar errores es mediante excepciones.
-Si estás familiarizado con este concepto y lo prefieres, **puedes utilizar excepciones para gestionar los errores en la práctica**.
-
-Para utilizar excepciones solo necesitas saber que podemos lanzar una excepción para un código de error de `errno` concreto:
+Para utilizar excepciones cuando se gestionan los errores de las librerías del sistema, solo necesitas saber que puedes lanzar una excepción para un código de error de `errno` concreto así:
 
 ```{.cpp}
 throw std::system_error(errno, std::system_category(), "Error en foo()");
 ```
 
-Si, por ejemplo, se lanza una excepción de tipo `std::system_error` desde la función `read_file()` cuando `read()` falla, la excepción se puede capturar para manejarla adecuadamente:
+Por ejemplo, en `read_file()` se puede lanzar una excepción de tipo `std::system_error` con el valor de `errno` cuando `read()` falla:
+
+```{.cpp}
+ssize_t read_file(const SafeFD& fd, std::vector<uint8_t>& buffer,
+    size_t max_size)
+{
+    // ...
+
+    ssize_t bytes_read = read(fd.get(), buffer.data(), max_size);
+    if (bytes_read < 0)
+    {
+        throw std::system_error(errno, std::system_category(),
+            "Error en read()");
+    }
+
+    // ...
+}
+```
+
+Esta excepción se puede capturar en la función que llama a `read_file()` y manejarla adecuadamente:
 
 ```{.cpp}
 try
 {
-    read_file(int fd, buffer);
+    read_file(fd, buffer);
 }
 catch (std::system_error& e)
 {
@@ -42,7 +72,7 @@ Dicho código se puede obtener con el método `value()` del objeto `std::error_c
 ```{.cpp}
 try
 {
-    // ...
+    read_file(fd, buffer);
 }
 catch (std::system_error& e)
 {
@@ -66,7 +96,7 @@ throw std::system_error(errno, std::system_category(),
 ```{.cpp}
 try
 {
-    // ...
+    read_file(fd, buffer);
 }
 catch (std::system_error& e)
 {
