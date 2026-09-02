@@ -30,16 +30,15 @@ Con g++ recomendamos utilizar al menos las siguientes opciones de diagnóstico:
 * `-Wall`. Activa los avisos más comunes.
 * `-Wextra`. Activa avisos adicionales.
 Cuando se usa junto con `-Wall`, se cubren la mayoría de los problemas de código.
-* `-Werror`. Convierte los avisos en errores, haciendo que el compilador termine con un error si se detecta alguno.
 * `-Wpedantic`. Activa avisos sobre el uso de extensiones no estándares del lenguaje.
 
 Por tanto, ejecutaríamos el compilador así:
 
 ```{.bash}
-$ g++ -std=c++23 -Wall -Wextra -Werror -Wpedantic -o ejemplo ejemplo.cpp
+$ g++ -std=c++23 -Wall -Wextra -Wpedantic -o ejemplo ejemplo.cpp
 ```
 
-Además de las opciones mínimas anteriores, es recomendable activar también las siguientes:
+Además de las opciones mínimas anteriores, el proyecto [CMake for C++ Best Practices](https://github.com/cpp-best-practices/cmake_template) recomienda activar también las siguientes:
 
 * `-Wshadow`. Activa avisos sobre variables locales que ocultan variables de ámbito superior.
 * `-Wnon-virtual-dtor`. Activa avisos sobre clases con funciones virtuales que tienen un destructor no virtual.
@@ -57,17 +56,19 @@ Además de las opciones mínimas anteriores, es recomendable activar también la
 * `-Wduplicated-branches`. Activa avisos sobre código duplicado en cadenas de `if`/`else`.
 * `-Wlogical-op`. Activa avisos sobre operadores lógicos que parecen indicar que se querían usar operadores a nivel de bits.
 * `-Wuseless-cast`. Activa avisos sobre *typecasts* que no cambian el tipo de la expresión porque ya es del tipo al que se quiere convertir.
+* `-Wimplicit-fallthrough`. Activa avisos sobre saltos implícitos de un caso a otro en una sentencia `switch`.
 
 Para lo que tendríamos que iniciar la compilación así:
 
 ```{.bash}
-$ g++ -std=c++23 -Wall -Wextra -Werror -Wpedantic \
+$ g++ -std=c++23 -Wall -Wextra -Wpedantic \
       -Wshadow -Wnon-virtual-dtor -Wold-style-cast \
       -Wcast-align -Wunused -Woverloaded-virtual \
       -Wconversion -Wsign-conversion -Wnull-dereference \
       -Wdouble-promotion -Wformat=2 -Wmisleading-indentation \
       -Wduplicated-cond -Wduplicated-branches -Wlogical-op \
-      -Wuseless-cast -o ejemplo ejemplo.cpp
+      -Wimplicit-fallthrough -Wuseless-cast \
+      -o ejemplo ejemplo.cpp
 ```
 
 ## Opciones para sanear el código
@@ -75,13 +76,14 @@ $ g++ -std=c++23 -Wall -Wextra -Werror -Wpedantic \
 Con g++ también recomendamos utilizar la opción `-fsanitize=address,undefined,leak` para _sanear_ el código durante el desarrollo de la práctica:
 
 ```{.bash}
-$ g++ -std=c++23 -Wall -Wextra -Werror -Wpedantic \
+$ g++ -std=c++23 -Wall -Wextra -Wpedantic \
       -Wshadow -Wnon-virtual-dtor -Wold-style-cast \
       -Wcast-align -Wunused -Woverloaded-virtual \
       -Wconversion -Wsign-conversion -Wnull-dereference \
       -Wdouble-promotion -Wformat=2 -Wmisleading-indentation \
       -Wduplicated-cond -Wduplicated-branches -Wlogical-op \
-      -Wuseless-cast -fsanitize=address,undefined,leak \
+      -Wimplicit-fallthrough -Wuseless-cast \
+      -fsanitize=address,undefined,leak \
       -o ejemplo ejemplo.cpp 
 ```
 
@@ -156,7 +158,8 @@ $ g++ -std=c++23 -Wall -Wextra -Werror -Wpedantic \
       -Wconversion -Wsign-conversion -Wnull-dereference \
       -Wdouble-promotion -Wformat=2 -Wmisleading-indentation \
       -Wduplicated-cond -Wduplicated-branches -Wlogical-op \
-      -Wuseless-cast -fsanitize=address,undefined,leak \
+      -Wimplicit-fallthrough -Wuseless-cast \
+      -fsanitize=address,undefined,leak \
       -o ejemplo ejemplo.cpp 
 ```
 
@@ -172,7 +175,8 @@ $ CXXFLAGS="-std=c++23 -Wall -Wextra -Werror -Wpedantic \
     -Wconversion -Wsign-conversion -Wnull-dereference \
     -Wdouble-promotion -Wformat=2 -Wmisleading-indentation \
     -Wduplicated-cond -Wduplicated-branches -Wlogical-op \
-    -Wuseless-cast -fsanitize=address,undefined,leak"
+    -Wimplicit-fallthrough -Wuseless-cast \
+    -fsanitize=address,undefined,leak"
 ```
 
 Simplemente tenemos que ejecutar el compilador de la siguiente manera:
